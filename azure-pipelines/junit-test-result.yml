@@ -4,36 +4,68 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
 
 trigger:
-- main
+  - main
 
 pool:
-  name: Azure Pipelines
+  vmImage: 'ubuntu-latest'
 
-steps:
-- task: NodeTool@0
-  inputs:
-    versionSpec: '16.x'
-  displayName: 'Install Node.js'
+variables:
+  buildConfiguration: 'Release'
+  artifactName: 'drop'
 
-- script: |
-    npm install
-    npm run build
-    npm test
-- task: PublishTestResults@2
-  inputs:
-    testResultsFormat: 'JUnit'
-    testResultsFiles: '**/TEST-*.xml'
-  displayName: 'npm install and build'
+stages:
+  - stage: Build
+    displayName: 'Build Stage'
+    jobs:
+      - job: BuildJob
+        displayName: 'Build and Publish Artifact'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '16.x'
+            displayName: 'Install Node.js'
 
-- task: ArchiveFiles@2
-  inputs:
-    rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
-    includeRootFolder: false
-    archiveType: 'zip'
-    archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
-    replaceExistingArchive: true
+          - script: |
+              npm install
+              npm run build
+            displayName: 'Build Node.js App'
 
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathToPublish: '$(Build.ArtifactStagingDirectory)'
-    artifactName: 'drop'
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+              includeRootFolder: false
+              archiveType: 'zip'
+              archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
+              replaceExistingArchive: true
+            displayName: 'Archive Build Output'
+
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: '$(artifactName)'
+              publishLocation: 'Container'
+            displayName: 'Publish Artifact'
+
+  - stage: Deploy
+    displayName: 'Deploy Stage'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: DeployJob
+        displayName: 'Deploy to Azure App Service'
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              buildType: 'current'
+              downloadType: 'single'
+              artifactName: '$(artifactName)'
+              downloadPath: '$(System.ArtifactsDirectory)'
+            displayName: 'Download Build Artifact'
+
+          - task: AzureWebApp@1
+            inputs:
+              azureSubscription: 'ARM-connection-<ogunladeolufunmi>'
+              appType: 'functionApp' # Or 'functionApp' for Windows'
+              appName: 'Funtoswebapp25'
+              package: '$(System.ArtifactsDirectory)/$(artifactName)/app.zip'
+            displayName: 'Deploy to Azure App Service'
